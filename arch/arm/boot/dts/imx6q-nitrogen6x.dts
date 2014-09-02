@@ -44,7 +44,7 @@
 
 &ov5640_mipi {
        csi_id = <1>;
-       ipu_id = <1>;
+       ipu_id = <0>;
 };
 
 &pinctrl_ov5640 { /* parallel camera */
