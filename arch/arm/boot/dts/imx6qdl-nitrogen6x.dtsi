@@ -397,21 +397,23 @@
 		mclk_source = <0>;
 	};
 
-	ov5640_mipi: ov5640_mipi@3e {
-		compatible = "ovti,ov5640_mipi";
-		reg = <0x3e>;
-		clocks = <&clks 147>;
+
+	ov5640: ov5640@3c {
+		compatible = "ovti,ov5640";
+		reg = <0x3c>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&pinctrl_ipu1_2>;
+		clocks = <&clks 200>;
 		clock-names = "csi_mclk";
 		DOVDD-supply = <&reg_1p8v>;
 		AVDD-supply = <&reg_2p5v>;
 		DVDD-supply = <&reg_1p8v>;
-		pwn-gpios = <&gpio6 9 1>;
-		rst-gpios = <&gpio2 5 0>;
+		pwn-gpios = <&gpio1 6 1>;
+		rst-gpios = <&gpio1 8 0>;
 		ipu_id = <0>;
-		csi_id = <1>;
-		mclk = <22000000>;
+		csi_id = <0>;
+		mclk = <24000000>;
 		mclk_source = <0>;
-		pwms = <&pwm3 0 45>;
 	};
 
 	tc358743_mipi: tc358743_mipi@0f {
@@ -461,23 +463,6 @@
 		interrupt-parent = <&gpio1>;
 		interrupts = <9 2>;
 		wakeup-gpios = <&gpio1 9 0>;
-	};
-
-	ov5640: ov5640@3c {
-		compatible = "ovti,ov5640";
-		reg = <0x3c>;
-		pinctrl-names = "default";
-		pinctrl-0 = <&pinctrl_ov5640 &pinctrl_ov5640_gpios>;
-		clocks = <&clk24m 0>;
-		clock-names = "csi_mclk";
-		DOVDD-supply = <&reg_1p8v>;
-		AVDD-supply = <&reg_2p5v>;
-		DVDD-supply = <&reg_1p8v>;
-		pwn-gpios = <&gpio3 13 1>;
-		rst-gpios = <&gpio3 14 0>;
-		csi_id = <1>;
-		mclk = <24000000>;
-		mclk_source = <0>;
 	};
 
 	tsc2004@48 {
