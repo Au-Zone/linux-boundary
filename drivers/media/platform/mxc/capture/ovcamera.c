@@ -974,6 +974,9 @@ ovcamera_ioctl_dev_init(struct v4l2_int_device *idev)
     ovcamera_write_reg(i2c_client,0x301B, 0xF0);
     ovcamera_write_reg(i2c_client,0x301C, 0xF0);
     ovcamera_write_reg(i2c_client,0x301A, 0xF0);
+    
+    /* this controls the UV sign bit somehow?? */
+    //ovcamera_write_reg(i2c_client,0x6901, 0x01);
 
     msleep(30);
 
