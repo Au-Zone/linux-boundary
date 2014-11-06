@@ -46,10 +46,33 @@ y#include <linux/module.h>
 #include "mxc_v4l2_capture.h"
 
 // TO DO: to be put in ovcamera_regs.h file:
+
+// 5640 and 10633 both use the same registers and clock specifications
 #define OV5640_CHIP_ID_HIGH_BYTE        0x300A
 #define OV5640_CHIP_ID_LOW_BYTE         0x300B
 #define OV5640_XCLK_MIN 6000000
 #define OV5640_XCLK_MAX 24000000
+
+#define MIN_FPS 15
+#define MAX_FPS 30
+#define DEFAULT_FPS 30
+
+// specific to 10633
+#define OV1063X_SENSOR_WIDTH		1312
+#define OV1063X_SENSOR_HEIGHT		814
+
+#define OV1063X_MAX_WIDTH		1280
+#define OV1063X_MAX_HEIGHT		800
+
+//  max / min for 1st mid PLL clock speeds
+#define OV10633_MIDPLLCLK_MAX   27000000
+#define OV10633_MIDPLLCLK_MIN   3000000
+// max / min for the 2nd mid PLL clock speeds
+#define OV10633_MIDPLLCLK_2_MAX 500000000
+#define OV10633_MIDPLLCLK_2_MIN 200000000
+// max system clock speed allowed
+#define OV10633_SYSCLK_MAX      96000000
+
 
 enum ov_camera_type {
 	ov_camera_none,
@@ -71,6 +94,91 @@ enum ov5640_mode {
     ov5640_mode_MAX = 8
 };
 
+//  HACK
+// NOTE: this structure an the subsequent data structure that it is used with should be changed
+//   in the 5640 there were 2 tables one for 15FPS and the other for 30 FPS
+//   in the 10633 we are calculating so we should just calculate for both of these chips eventually
+// then we have a single table with the MODES and the FPS and clock speed (pixel clock) are calculated out
+//  or some such thing
+enum ov5640_frame_rate {
+    ov5640_15_fps,
+    ov5640_30_fps
+};
+
+static int ov5640_framerates[] = {
+    [ov5640_15_fps] = 15,
+    [ov5640_30_fps] = 30,
+};
+
+
+struct ov5640_mode_info {
+    enum ov5640_mode mode;
+    u32 width;
+    u32 height;
+    struct reg_value *init_data_ptr;
+    u32 init_data_size;
+    int				xvclk;
+    int				fps_numerator;
+    int				fps_denominator;
+};
+
+static struct ov5640_mode_info ov5640_mode_info_data[2][ov5640_mode_MAX + 1] = {
+    {
+        {ov5640_mode_VGA_640_480,      640,  480,
+        NULL, // ov5640_setting_15fps_VGA_640_480,
+        0, 0, 0, 0}, // ARRAY_SIZE(ov5640_setting_15fps_VGA_640_480)},
+        {ov5640_mode_QVGA_320_240,     320,  240,
+        NULL, // ov5640_setting_15fps_QVGA_320_240,
+        0, 0, 0, 0}, // ARRAY_SIZE(ov5640_setting_15fps_QVGA_320_240)},
+        {ov5640_mode_NTSC_720_480,     720,  480,
+        NULL, // ov5640_setting_15fps_NTSC_720_480,
+        0, 0, 0, 0}, // ARRAY_SIZE(ov5640_setting_15fps_NTSC_720_480)},
+        {ov5640_mode_PAL_720_576,      720,  576,
+        NULL, // ov5640_setting_15fps_PAL_720_576,
+        0, 0, 0, 0}, // ARRAY_SIZE(ov5640_setting_15fps_PAL_720_576)},
+        {ov5640_mode_720P_1280_720,   1280,  720,
+        NULL, // ov5640_setting_15fps_720P_1280_720,
+        0, 0, 0, 0}, // ARRAY_SIZE(ov5640_setting_15fps_720P_1280_720)},
+        {ov5640_mode_1080P_1920_1080, 1920, 1080,
+        NULL, // ov5640_setting_15fps_1080P_1920_1080,
+        0, 0, 0, 0}, // ARRAY_SIZE(ov5640_setting_15fps_1080P_1920_1080)},
+        {ov5640_mode_QSXGA_2592_1944, 2592, 1944,
+        NULL, // ov5640_setting_15fps_QSXGA_2592_1944,
+        0, 0, 0, 0}, // ARRAY_SIZE(ov5640_setting_15fps_QSXGA_2592_1944)},
+        {ov5640_mode_QCIF_176_144,     176,  144,
+        NULL, // ov5640_setting_15fps_QCIF_176_144,
+        0, 0, 0, 0}, // ARRAY_SIZE(ov5640_setting_15fps_QCIF_176_144)},
+        {ov5640_mode_XGA_1024_768,    1024,  768,
+        NULL, // ov5640_setting_15fps_XGA_1024_768,
+        0, 0, 0, 0}, // ARRAY_SIZE(ov5640_setting_15fps_XGA_1024_768)},
+    },
+    {
+        {ov5640_mode_VGA_640_480,      640,  480,
+        NULL, // ov5640_setting_30fps_VGA_640_480,
+        0, 0, 0, 0}, // ARRAY_SIZE(ov5640_setting_30fps_VGA_640_480)},
+        {ov5640_mode_QVGA_320_240,     320,  240,
+        NULL, // ov5640_setting_30fps_QVGA_320_240,
+        0, 0, 0, 0}, // ARRAY_SIZE(ov5640_setting_30fps_QVGA_320_240)},
+        {ov5640_mode_NTSC_720_480,     720,  480,
+        NULL, // ov5640_setting_30fps_NTSC_720_480,
+        0, 0, 0, 0}, // ARRAY_SIZE(ov5640_setting_30fps_NTSC_720_480)},
+        {ov5640_mode_PAL_720_576,      720,  576,
+        NULL, // ov5640_setting_30fps_PAL_720_576,
+        0, 0, 0, 0}, // ARRAY_SIZE(ov5640_setting_30fps_PAL_720_576)},
+        {ov5640_mode_720P_1280_720,   1280,  720,
+        NULL, // ov5640_setting_30fps_720P_1280_720,
+        0, 0, 0, 0}, // ARRAY_SIZE(ov5640_setting_30fps_720P_1280_720)},
+        {ov5640_mode_1080P_1920_1080, 0, 0, NULL, 0, 0, 0, 0},
+        {ov5640_mode_QSXGA_2592_1944, 0, 0, NULL, 0, 0, 0, 0},
+        {ov5640_mode_QCIF_176_144,     176,  144,
+        NULL, // ov5640_setting_30fps_QCIF_176_144,
+        0, 0, 0, 0}, // ARRAY_SIZE(ov5640_setting_30fps_QCIF_176_144)},
+        {ov5640_mode_XGA_1024_768,    1024,  768,
+        NULL, // ov5640_setting_30fps_XGA_1024_768,
+        0, 0, 0, 0}, // ARRAY_SIZE(ov5640_setting_30fps_XGA_1024_768)},
+    },
+};
+
 // TO DO: end of ovcamera_regs.h file
 
 // HACK ... need to ensure that we are able to either derive this for each instance
@@ -78,6 +186,7 @@ static enum ov_camera_type ov_selected_camera = ov_camera_none;
 static int pwn_gpio, rst_gpio;
 
 // ** End of HACK
+
 
 #define VIDEO_SELECT_AUTO       0
 #define VIDEO_SELECT_NTSC       1
@@ -93,6 +202,9 @@ static ssize_t attr_store(struct kobject*, struct kobj_attribute*, const char*, 
 
 static int ovcamera_write_reg(struct i2c_client*, u16 reg, u8 val);
 static int ovcamera_read_reg(struct i2c_client*, u16 reg, u8 *val);
+
+static s32 ovcamera_write_reg16(struct i2c_client*, u16 reg, u16 val);
+
 
 static struct v4l2_queryctrl ovcamera_qctrl[] = {
     {
@@ -228,6 +340,451 @@ static struct attribute_group reg_attribute_group = {
     .name = "registers",
     .attrs = reg_attributes,
 };
+
+
+// ** 10633 Specific functions
+
+// used to calculate the pixel clock
+// NOTE: This is only for the YUV422 Pixel Clock calculation at the moment
+//
+static int ov10633_get_pclk(int xvclk, int *htsmin, int *vtsmin, int fps_numerator, int fps_denominator, u8 *r3003, u8 *r3004)
+{
+        int pre_divs[] = { 2, 3, 4, 6, 8, 10, 12, 14 };
+        int pclk;
+        int best_pclk = INT_MAX;
+        int best_hts = 0;
+        int i, j, k;
+        int best_i = 0, best_j = 0, best_k = 0;
+        int clk1, clk2;
+        int hts;
+
+        pr_info("%s: xvclk %d fps_numerator %d fps_denominator %d \n", __func__, xvclk, fps_numerator, fps_denominator );
+        /* Pre-div, reg 0x3004, bits 6:4 */
+        for (i = 0; i < 8; i++) {
+            clk1 = (xvclk / pre_divs[i]) * 2;
+
+            if ((clk1 < OV10633_MIDPLLCLK_MIN) || (clk1 > OV10633_MIDPLLCLK_MAX))
+                continue;
+
+            /* Mult = reg 0x3003, bits 5:0 */
+
+            for (j = 1; j < 32; j++) {
+                clk2 = (clk1 * j);
+
+                if ((clk2 < OV10633_MIDPLLCLK_2_MIN) || (clk2 > OV10633_MIDPLLCLK_2_MAX))
+                    continue;
+
+                /* Post-div, reg 0x3004, bits 2:0 */
+                for (k = 0; k < 8; k++) {
+                    pclk = clk2 / (2 * (k + 1));
+                    if (pclk > OV10633_SYSCLK_MAX)
+                        continue;
+                    hts = *htsmin + 200 + pclk / 300000;  // ? need to figure this out ?
+
+                    /* 2 clock cycles for every YUV422 pixel */
+
+                    if (pclk < (((hts * *vtsmin) / fps_denominator)
+                        * fps_numerator * 2))
+                        continue;
+
+                    if (pclk < best_pclk) {
+                        best_pclk = pclk;
+                        best_hts = hts;
+                        best_i = i;
+                        best_j = j;
+                        best_k = k;
+                    }
+                }
+            }
+        }
+
+        /* register contents  for clock */
+        * r3003 = (u8)best_j;
+        * r3004 = ((u8)best_i << 4) | (u8)best_k;
+
+        /* Did we get a valid PCLK? */
+        if (best_pclk == INT_MAX)
+            return -1;
+
+        *htsmin = best_hts;
+
+        /* Adjust vts to get as close to the desired frame rate as we can */
+        *vtsmin = best_pclk / ((best_hts / fps_denominator) * fps_numerator * 2);
+
+        return best_pclk;
+
+}
+
+/* Setup registers according to resolution and color encoding */
+static int ov10633_change_mode( struct i2c_client* i2c_client, enum ov5640_frame_rate frame_rate,  enum ov5640_mode mode)
+{
+    struct ov5640_mode_info *priv;
+    int ret;
+    ret = -EINVAL;
+    int pclk;
+    int hts, vts;
+    u8 r3003, r3004;
+    int tmp;
+    u32 height_pre_subsample;
+    u32 width_pre_subsample;
+    u8 horiz_crop_mode;
+    int i;
+    int nr_isp_pixels;
+    int vert_sub_sample = 0;
+    int horiz_sub_sample = 0;
+    int sensor_width;
+
+    // init priv to something here
+
+    //    if ((*width > OV1063X_MAX_WIDTH) || (*height > OV1063X_MAX_HEIGHT))	{
+    //            return ret;
+    //    }
+    pr_info("%s: frame_rate %d mode %d \n",__func__, frame_rate, mode );
+
+    /* select format */
+    priv =  &ov5640_mode_info_data[frame_rate][mode];
+   // priv->cfmt = NULL;
+    priv->xvclk = OV5640_XCLK_MAX;
+    priv->fps_numerator = 1;
+    priv->fps_denominator = ov5640_framerates[frame_rate];
+
+   //  priv->width = *width;
+   //  priv->height = *height;
+
+    /* Vertical sub-sampling? */
+    height_pre_subsample = priv->height;
+
+    if (priv->height <= 400) {
+        vert_sub_sample = 1;
+        height_pre_subsample <<= 1;
+    }
+
+    /* Horizontal sub-sampling? */
+    width_pre_subsample = priv->width;
+
+    if (priv->width <= 640) {
+        horiz_sub_sample = 1;
+        width_pre_subsample <<= 1;
+    }
+
+    /* Horizontal cropping */
+    if (width_pre_subsample > 768) {
+        sensor_width = OV1063X_SENSOR_WIDTH;
+        horiz_crop_mode = 0x63;
+    }
+    else if (width_pre_subsample > 656) {
+        sensor_width = 768;
+        horiz_crop_mode = 0x6b;
+    }
+    else {
+        sensor_width = 656;
+        horiz_crop_mode = 0x73;
+    }
+
+    /* minimum values for hts and vts */
+    hts = sensor_width;
+    vts = height_pre_subsample + 50;
+
+    pr_info("%s: fps=(%d/%d), hts=%d, vts=%d\n", __func__,	priv->fps_numerator, priv->fps_denominator, hts, vts);
+
+    /* Get the best PCLK & adjust hts,vts accordingly */
+
+    // swapped denom and num as the function want 30/1 versus 1/30 (which didn't work)
+    pclk = ov10633_get_pclk(priv->xvclk, &hts, &vts, priv->fps_denominator, priv->fps_numerator, &r3003, &r3004);
+
+    if (pclk < 0) {
+        return ret;
+    }
+
+    pr_info( "%s: pclk=%d, hts=%d, vts=%d\n", __func__, pclk, hts, vts);
+    pr_info( "%s: r3003=0x%X r3004=0x%X\n", __func__, r3003, r3004);
+
+    /* Set to 1280x720 */
+    // this should get set later ... may want to remove
+    ret = ovcamera_write_reg( i2c_client,0x380f, 0x80);
+    if (ret) {
+        return ret;
+    }
+
+    /* Set PLL */
+
+    ret = ovcamera_write_reg(i2c_client,0x3003, r3003);
+
+    if (ret) {
+        return ret;
+    }
+    ret = ovcamera_write_reg( i2c_client,0x3004, r3004);
+    if (ret) {
+        return ret;
+    }
+    pr_info("%s:     register 0x3003 = %02X \n", __func__, r3003);
+    pr_info("%s     register 0x3004 = %02X \n", __func__, r3004);
+
+    /* Set HSYNC */
+    ret = ovcamera_write_reg(i2c_client, 0x4700, 0x00);
+    if (ret) {
+        return ret;
+    }
+    pr_info("%s:  SETTING HSYNC \n", __func__);
+    pr_info("%s:     register 0x4700 = %02X \n", __func__, 0x00);
+
+    /* Set format to UYVY */
+
+    ret = ovcamera_write_reg(i2c_client, 0x4300, 0x38); // Set the format to YUV (3) and YUYV (8
+    ret = ovcamera_write_reg(i2c_client, 0x5003, 0x14); //Set for YUV44 to YUV422 drop AND no-VSYNC latch AND AEC/simple awb/tonemap/combine done
+    if (ret) {
+        return ret;
+    }
+    pr_info("%s:  SETTING YUYV \n", __func__);
+    pr_info("%s:     register 0x4300 = %02X and 0x5003 = %2X \n", __func__, 0x38, 0x14);
+
+    /* Set output to 8-bit yuv */
+
+    ret = ovcamera_write_reg(i2c_client, 0x4605, 0x08);
+    if (ret) {
+        return ret;
+    }
+    pr_info("%s:  SETTING 8-bit yuv \n", __func__);
+    pr_info("%s:      register 0x4605 = %02X \n", __func__, 0x08);
+
+    /* Horizontal cropping */
+
+    ret = ovcamera_write_reg(i2c_client,0x3621, horiz_crop_mode);
+    if (ret) {
+        return ret;
+    }
+    ret = ovcamera_write_reg( i2c_client,0x3702, (pclk + 1500000) / 3000000);
+    if (ret) {
+        return ret;
+    }
+    ret = ovcamera_write_reg(i2c_client, 0x3703, (pclk + 666666) / 1333333);
+    if (ret) {
+        return ret;
+    }
+    ret = ovcamera_write_reg(i2c_client, 0x3704, (pclk + 961500) / 1923000);
+    if (ret) {
+        return ret;
+    }
+
+    pr_info("%s:  Horizontal cropping\n", __func__);
+    pr_info("%s:    register 0x3621 = %02X \n", __func__, horiz_crop_mode);
+    pr_info("%s:    register 0x3702 = %02X \n", __func__, (pclk + 1500000) / 3000000);
+    pr_info("%s:    register 0x3703 = %02X \n", __func__, (pclk + 666666) / 1333333);
+    pr_info("%s:    register 0x3704 = %02X \n", __func__, (pclk + 961500) / 1923000);
+
+    /* Vertical cropping */
+    tmp = ((OV1063X_SENSOR_HEIGHT - height_pre_subsample) / 2) & ~0x1;
+    ret = ovcamera_write_reg( i2c_client,0x3802, tmp);
+    if (ret) {
+        return ret;
+    }
+    tmp = tmp + height_pre_subsample + 3;
+    ret = ovcamera_write_reg( i2c_client,0x3806, tmp);
+    if (ret) {
+        return ret;
+    }
+    pr_info("%s:  Vertical cropping\n", __func__);
+    tmp = ((OV1063X_SENSOR_HEIGHT - height_pre_subsample) / 2) & ~0x1;
+    pr_info("%s:     register 0x3802 / 03 = %04X \n", __func__, tmp);
+    tmp = tmp + height_pre_subsample + 3;
+    pr_info("%s:     register 0x3806 / 07 = %04X \n", __func__, tmp);
+
+    /* Output size */
+
+    ret = ovcamera_write_reg16(i2c_client, 0x3808, priv->width);
+    if (ret) {
+        return ret;
+    }
+    ret = ovcamera_write_reg16(i2c_client,0x380a, priv->height);
+    if (ret) {
+        return ret;
+    }
+    ret = ovcamera_write_reg16( i2c_client,0x380c, hts);
+    if (ret) {
+        return ret;
+    }
+    ret = ovcamera_write_reg16(i2c_client, 0x380e, vts);
+    if (ret) {
+        return ret;
+    }
+
+    if (vert_sub_sample) {
+            pr_info("%s:  ***   FIX VERT_SUB_SAMPLE!!! \n", __func__);
+        /*
+        ret = ov1063x_reg_rmw(client, OV1063X_VFLIP,
+                              OV1063X_VFLIP_SUBSAMPLE, 0);
+        if (ret) {
+            return ret;
+        }
+        ret = ov1063x_set_regs(client, ov1063x_regs_vert_sub_sample,
+                               ARRAY_SIZE(ov1063x_regs_vert_sub_sample));
+        if (ret) {
+            return ret;
+        }
+        */
+    }
+
+    ret = ovcamera_write_reg16(i2c_client,0x4606, 2 * hts);
+    if (ret) {
+        return ret;
+    }
+    ret = ovcamera_write_reg16( i2c_client,0x460a, 2 * (hts - width_pre_subsample));
+    if (ret) {
+        return ret;
+    }
+    tmp = (vts - 8) * 16;
+    ret = ovcamera_write_reg16(i2c_client, 0xc488, tmp);
+    if (ret) {
+        return ret;
+    }
+    ret = ovcamera_write_reg16(i2c_client, 0xc48a, tmp);
+    if (ret) {
+        return ret;
+    }
+    nr_isp_pixels = sensor_width * (priv->height + 4);
+    ret = ovcamera_write_reg16(i2c_client, 0xc4cc, nr_isp_pixels / 256);
+    if (ret) {
+        return ret;
+    }
+    ret = ovcamera_write_reg16(i2c_client, 0xc4ce, nr_isp_pixels / 256);
+    if (ret) {
+        return ret;
+    }
+    ret = ovcamera_write_reg16(i2c_client, 0xc512, nr_isp_pixels / 16);
+    if (ret) {
+        return ret;
+    }
+
+
+    pr_info("%s:  Output Size \n", __func__);
+    pr_info("%s:     register 0x3808 / 09 = %04X \n", __func__, priv->width);
+    pr_info("%s:     register 0x380a / 0b = %04X \n", __func__, priv->height);
+    pr_info("%s:     register 0x380c / 0c = %04X \n", __func__, hts);
+    pr_info("%s:     register 0x380e / 0f = %04X \n", __func__, vts);
+
+
+    if (vert_sub_sample) {
+                    pr_info("%s:  ***   FIX VERT_SUB_SAMPLE!!! Number 2 \n", __func__);
+        /*
+        ret = ov1063x_reg_rmw(client, OV1063X_VFLIP, OV1063X_VFLIP_SUBSAMPLE, 0);
+        if (ret)
+            return ret;
+        ret = ov1063x_set_regs(client, ov1063x_regs_vert_sub_sample, ARRAY_SIZE(ov1063x_regs_vert_sub_sample));
+        if (ret)
+            return ret;
+            */
+    }
+
+
+    pr_info("%s:  Vert sub sample \n", __func__);
+    pr_info("%s:     register 0x4606 / 07 = %04X \n", __func__, 2 * hts);
+    pr_info("%s:    register 0x460a / 0b = %04X \n", __func__, 2 * (hts - width_pre_subsample));
+
+    tmp = (vts - 8) * 16;
+    pr_info("%s:     register 0xC488 / 89 = %04X \n", __func__, tmp);
+    pr_info("%s:     register 0xc48a / 8b = %04X \n", __func__, tmp);
+
+    nr_isp_pixels = sensor_width * (priv->height + 4);
+    pr_info("%s:     register 0xc4cc / cd = %04X \n", __func__, nr_isp_pixels / 256);
+    pr_info("%s:     register 0xc4ce / cf = %04X \n", __func__, nr_isp_pixels / 256);
+    pr_info("%s:     register 0xc512 / 13 = %04X \n", __func__, nr_isp_pixels / 16);
+
+                /* Horizontal sub-sampling */
+
+    if (horiz_sub_sample) {
+        ret = ovcamera_write_reg(i2c_client, 0x5005, 0x9);
+        if (ret) {
+            return ret;
+        }
+        ret = ovcamera_write_reg(i2c_client, 0x3007, 0x2);
+        if (ret) {
+            return ret;
+        }
+    }
+    ret = ovcamera_write_reg16( i2c_client,0xc518, vts);
+    if (ret) {
+        return ret;
+    }
+    ret = ovcamera_write_reg16(i2c_client,0xc51a, hts);
+    if (ret) {
+        return ret;
+    }
+
+
+    if (horiz_sub_sample) {
+        ret = ovcamera_write_reg(i2c_client,0x5005, 0x9);
+        if (ret) {
+            return ret;
+        }
+        ret = ovcamera_write_reg( i2c_client,0x3007, 0x2);
+        if (ret) {
+            return ret;
+        }
+    }
+
+
+    pr_info("%s: Horizontal sub sample \n", __func__);
+    pr_info("%s:     register 0xc518 / 19 = %04X \n", __func__, vts);
+    pr_info("%s:     register 0xc51a / 1b = %04X \n", __func__, hts);
+}
+
+
+// call this prior to changing any registry settings
+static void ov10633_suspend_pipeline(  struct i2c_client* i2c_client )
+{
+
+    pr_info("%s: ov10633_suspend_pipeline \n",__func__);
+
+    ovcamera_write_reg(i2c_client,0x301D, 0xFF);
+    ovcamera_write_reg(i2c_client,0x301E, 0xFF);
+    ovcamera_write_reg(i2c_client,0x3040, 0xFF);
+    ovcamera_write_reg(i2c_client,0x3041, 0xFF);
+    ovcamera_write_reg(i2c_client,0x3042, 0xFF);
+
+    // clock reset 1
+    ovcamera_write_reg(i2c_client, 0x301B, 0xFF);
+
+    // clock reset 2
+    ovcamera_write_reg(i2c_client, 0x301C, 0xFF);
+
+    // clock reset 0
+    ovcamera_write_reg(i2c_client, 0x301A, 0xFF);
+
+
+    /* delay at least 10 ms */
+    msleep(2);
+}
+
+static void ov10633_enable_pipeline( struct i2c_client* i2c_client )
+{
+
+    pr_info("%s: ov10633_enable_pipeline \n",__func__ );
+
+    ovcamera_write_reg( i2c_client,0x0100, 0x01 ); // ensure the video streaming bit is set
+
+    /* delay at least 1 ms */
+    msleep(1);
+
+    // clock reset 7
+    ovcamera_write_reg(i2c_client, 0x3042, 0xF9);  // some abiguity here ... should this be F0 or F9
+    msleep(30);
+    ovcamera_write_reg(i2c_client,0x301D, 0xB4);
+    ovcamera_write_reg(i2c_client,0x301E, 0xF0);
+    ovcamera_write_reg(i2c_client,0x3040, 0xF0);
+    ovcamera_write_reg(i2c_client,0x3041, 0xF0);
+    // clock reset 1
+    ovcamera_write_reg(i2c_client, 0x301B, 0xF0);
+    // clock reset 2
+    ovcamera_write_reg(i2c_client, 0x301C, 0xF0);
+    // clock reset 0
+    ovcamera_write_reg(i2c_client, 0x301A, 0xF0);
+
+    /* delay at least 10 ms */
+    msleep(30);
+}
+
+
+//** end of 10633 Specific functions
 
 static ssize_t attr_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
 {
@@ -533,6 +1090,24 @@ static ssize_t attr_store(struct kobject *kobj, struct kobj_attribute *attr, con
 }
 
 
+static s32 ovcamera_write_reg16(struct i2c_client* i2c_client, u16 reg, u16 val )
+{
+    int retval;
+
+    retval = ovcamera_write_reg( i2c_client, reg, val >> 8);
+
+    if (retval) {
+            return retval;
+    }
+
+    retval = ovcamera_write_reg(i2c_client, reg + 1, val & 0xff);
+    if (retval) {
+         return retval;
+    }
+
+    return 0;
+}
+
 static int ovcamera_write_reg(struct i2c_client* i2c_client, u16 reg, u8 val)
 {
     u8 au8Buf[3] = {0};
@@ -676,14 +1251,80 @@ static int
 ovcamera_ioctl_s_param(struct v4l2_int_device *idev, struct v4l2_streamparm *param)
 {
 	struct sensor_data *sensor = idev->priv;
+    struct i2c_client *i2c_client = sensor->i2c_client;
+    struct v4l2_fract *timeperframe = &param->parm.capture.timeperframe;
+    u32 tgt_fps;	/* target frames per secound */
+    enum ov5640_frame_rate frame_rate;
+    int ret = 0;
 
     pr_info("%s \n", __func__ );
 
 	switch (param->type) {
 	case V4L2_BUF_TYPE_VIDEO_CAPTURE:
-		sensor->streamcap.capturemode = param->parm.capture.capturemode;
-		sensor->streamcap.timeperframe = sensor->streamcap.timeperframe;
-		//sensor->streamcap.timeperframe = param->parm.capture.timeperframe;
+
+        /* Check that the new frame rate is allowed. */
+        if ((timeperframe->numerator == 0) ||
+            (timeperframe->denominator == 0)) {
+            timeperframe->denominator = DEFAULT_FPS;
+            timeperframe->numerator = 1;
+        }
+
+        tgt_fps = timeperframe->denominator /
+              timeperframe->numerator;
+
+        if (tgt_fps > MAX_FPS) {
+            timeperframe->denominator = MAX_FPS;
+            timeperframe->numerator = 1;
+        } else if (tgt_fps < MIN_FPS) {
+            timeperframe->denominator = MIN_FPS;
+            timeperframe->numerator = 1;
+        }
+
+        /* Actual frame rate we use */
+        tgt_fps = timeperframe->denominator /
+              timeperframe->numerator;
+
+        if (tgt_fps == 15)
+            frame_rate = ov5640_15_fps;
+        else if (tgt_fps == 30)
+            frame_rate = ov5640_30_fps;
+        else {
+            pr_err(" The camera frame rate is not supported!\n");
+            return -EINVAL;
+        }
+
+        if ( ov_selected_camera == ov_camera_5640 )
+        {
+            ret = 0; // ov5640_change_mode(frame_rate, param->parm.capture.capturemode);
+        }
+        else if ( ov_selected_camera == ov_camera_10633 )
+        {
+            /*
+             * The image size sent over is stable and changes between mode 0 and mode 4
+             * However, the image is always dark.
+             * I am attributing this to an incorrect suspend or enable sequence
+             *
+             * Turning off until we get the start up sequence figured out
+             *
+             *
+            ov10633_suspend_pipeline(i2c_client);// need to disable the pipeline while setting the values
+            sensor->pix.width = ov5640_mode_info_data[frame_rate][param->parm.capture.capturemode].width;
+            sensor->pix.height = ov5640_mode_info_data[frame_rate][param->parm.capture.capturemode].height;
+            sensor->streamcap.capturemode = param->parm.capture.capturemode;
+            ret = ov10633_change_mode(i2c_client, frame_rate, param->parm.capture.capturemode);
+            ov10633_enable_pipeline(i2c_client); // need to reenable the pipeline
+            msleep( 500 );
+            */
+        }
+
+        if (ret < 0)
+        {
+            pr_err(" ovcamera: The camera  change mode failed!\n");
+            return ret;
+        }
+
+        sensor->streamcap.timeperframe = *timeperframe;
+        sensor->streamcap.capturemode = param->parm.capture.capturemode;
 
         pr_info("%s: capturemode %d timeperframe %d/%d\n", __func__,
                  sensor->streamcap.capturemode,
@@ -848,8 +1489,20 @@ ovcamera_ioctl_enum_framesizes(struct v4l2_int_device *idev, struct v4l2_frmsize
 //HACK need to fix for different format sizes ala 5640 ...
 
 	fsize->pixel_format = sensor->pix.pixelformat;
-    fsize->discrete.width = 1280;
-    fsize->discrete.height = 720;
+    // fsize->discrete.width = 1280;
+    // fsize->discrete.height = 720;
+
+    fsize->discrete.width =
+            max(ov5640_mode_info_data[0][fsize->index].width,
+                ov5640_mode_info_data[1][fsize->index].width);
+    fsize->discrete.height =
+            max(ov5640_mode_info_data[0][fsize->index].height,
+                ov5640_mode_info_data[1][fsize->index].height);
+
+    pr_info("%s: fsize->index %d  format %x width %d height %d \n", __func__,fsize->index ,fsize->pixel_format,fsize->discrete.width,
+            fsize->discrete.height );
+
+
 	
 	return 0;
 }
@@ -884,9 +1537,11 @@ ovcamera_ioctl_dev_init(struct v4l2_int_device *idev)
     struct i2c_client *i2c_client = sensor->i2c_client;
 
     pr_info("%s \n", __func__ );
-    ovcamera_write_reg(i2c_client, 0x0103, 0x01); // soft reset (OVCAM)
-    msleep(2);
 
+     // soft reset
+    ovcamera_write_reg(i2c_client, 0x0103, 0x01);
+    msleep(2);
+    // Control register setup to allow sensor configuration
     ovcamera_write_reg(i2c_client,0x301D, 0xFF);
     ovcamera_write_reg(i2c_client,0x301E, 0xFF);
     ovcamera_write_reg(i2c_client,0x3040, 0xFF);
@@ -899,74 +1554,83 @@ ovcamera_ioctl_dev_init(struct v4l2_int_device *idev)
 
     msleep(2);
 
-    // bump up to 2X output drive (save bottom 5 bits as they are reserved)
+    // output drive
     ovcamera_write_reg(i2c_client, 0x3011, 0x02 );
     //*** Switch from PAD Clock to all clock ?
     ovcamera_write_reg(i2c_client, 0x3023, 0x10 );
 
-    ovcamera_write_reg(i2c_client, 0x3024, 0x05 );  // PLCLK = System Clk and Short
+
+    // PLCLK from System Clock and Short YUV mode
+    ovcamera_write_reg(i2c_client, 0x3024, 0x05 );
+
+    // System Clock
+    // 82.666 MHz from calculation for Pixel Clock requirement
     // set system clock to 82.66 MHz to match our default settings for now
     ovcamera_write_reg(i2c_client,0x3003, 0x1f);
     ovcamera_write_reg(i2c_client,0x3004, 0x12);
 
-    ovcamera_write_reg(i2c_client,0x3800, 0x00); // Timing X Start Addr (cropping x start)
+    // Set up the cropping and window regions
+    ovcamera_write_reg(i2c_client,0x3800, 0x00);
     ovcamera_write_reg(i2c_client,0x3801, 0x00);
-    ovcamera_write_reg(i2c_client,0x3802, 0x00); // (OVCAM) programatically
-    ovcamera_write_reg(i2c_client,0x3803, 0x2E); // programatically
+    ovcamera_write_reg(i2c_client,0x3802, 0x00);
+    ovcamera_write_reg(i2c_client,0x3803, 0x2E);
 
 
-    ovcamera_write_reg(i2c_client,0x3804, 0x05);  //  Timing X End Addr  def 0x05
-    ovcamera_write_reg(i2c_client,0x3805, 0x1f);  //
+    ovcamera_write_reg(i2c_client,0x3804, 0x05);
+    ovcamera_write_reg(i2c_client,0x3805, 0x1f);
 
-    ovcamera_write_reg(i2c_client,0x3806, 0x03);  // (OVCAM) programatically
-    ovcamera_write_reg(i2c_client,0x3807, 0x01);  // programatically
+    ovcamera_write_reg(i2c_client,0x3806, 0x03);
+    ovcamera_write_reg(i2c_client,0x3807, 0x01);
 
-    ovcamera_write_reg(i2c_client,0x3808, 0x05);  // (OVCAM) programatically
-    ovcamera_write_reg(i2c_client,0x3809, 0x00);  // (OVCAM+1) programatically
-    ovcamera_write_reg(i2c_client,0x380a, 0x02);  // (OVCAM) programatically
-    ovcamera_write_reg(i2c_client,0x380b, 0xd0);  // (OVCAM+1) programatically
-    ovcamera_write_reg(i2c_client,0x380C, 0x06); // (OVCAM) programatically
-    ovcamera_write_reg(i2c_client,0x380D, 0xFB); // (OVCAM+1) programatically
-    ovcamera_write_reg(i2c_client,0x380E, 0x03);  // (OVCAM) programatically
-    ovcamera_write_reg(i2c_client,0x380F, 0x03);  // (OVCAM+1) pro
-    ovcamera_write_reg(i2c_client,0x3621, 0x63); // (OVCAM) programatically
-    ovcamera_write_reg(i2c_client,0x3702, 0x1C); // (OVCAM) programatically
-    ovcamera_write_reg(i2c_client,0x3703, 0x3E); // (OVCAM) programatically
-    ovcamera_write_reg(i2c_client,0x3704, 0x2B); // (OVCAM) programatically
-    ovcamera_write_reg(i2c_client, 0x4606, 0x0D);  // programatically
-    ovcamera_write_reg(i2c_client,0x4607, 0xF6);  // programatically
-    ovcamera_write_reg(i2c_client,0x460a, 0x03);  // programatically
-    ovcamera_write_reg(i2c_client, 0x460b, 0xF6);  // programatically
-    ovcamera_write_reg(i2c_client, 0xc488, 0x2F); // programatically
-    ovcamera_write_reg(i2c_client,0xc489, 0xB0);  // programatically
-    ovcamera_write_reg(i2c_client, 0xc48a, 0x2F);  // programatically
-    ovcamera_write_reg(i2c_client, 0xc48b, 0xB0);  // programatically
-    ovcamera_write_reg(i2c_client, 0xc4cc, 0x0e);  // programatically
-    ovcamera_write_reg(i2c_client, 0xc4cd, 0x7e);  // programatically
-    ovcamera_write_reg(i2c_client, 0xc4ce, 0x0e);  // programatically
-    ovcamera_write_reg(i2c_client, 0xc4cf, 0x7e);  // programatically
-    ovcamera_write_reg(i2c_client,0xc512, 0xe7); // programatically
-    ovcamera_write_reg(i2c_client,0xc513, 0xe8); // programatically
+    ovcamera_write_reg(i2c_client,0x3808, 0x05);
+    ovcamera_write_reg(i2c_client,0x3809, 0x00);
+    ovcamera_write_reg(i2c_client,0x380a, 0x02);
+    ovcamera_write_reg(i2c_client,0x380b, 0xd0);
+    ovcamera_write_reg(i2c_client,0x380C, 0x06);
+    ovcamera_write_reg(i2c_client,0x380D, 0xFB);
+    ovcamera_write_reg(i2c_client,0x380E, 0x03);
+    ovcamera_write_reg(i2c_client,0x380F, 0x03);
+
+     //** cropping set up
+    ovcamera_write_reg(i2c_client,0x3621, 0x63);
+    ovcamera_write_reg(i2c_client,0x3702, 0x1C);
+    ovcamera_write_reg(i2c_client,0x3703, 0x3E);
+    ovcamera_write_reg(i2c_client,0x3704, 0x2B);
+    ovcamera_write_reg(i2c_client, 0x4606, 0x0D);
+    // Vertical sub sample
+    ovcamera_write_reg(i2c_client,0x4607, 0xF6);
+    ovcamera_write_reg(i2c_client,0x460a, 0x03);
+    ovcamera_write_reg(i2c_client, 0x460b, 0xF6);
+    ovcamera_write_reg(i2c_client, 0xc488, 0x2F); 
+    ovcamera_write_reg(i2c_client,0xc489, 0xB0);
+    ovcamera_write_reg(i2c_client, 0xc48a, 0x2F);
+    ovcamera_write_reg(i2c_client, 0xc48b, 0xB0);
+    ovcamera_write_reg(i2c_client, 0xc4cc, 0x0e);
+    ovcamera_write_reg(i2c_client, 0xc4cd, 0x7e);
+    ovcamera_write_reg(i2c_client, 0xc4ce, 0x0e);
+    ovcamera_write_reg(i2c_client, 0xc4cf, 0x7e);
+    ovcamera_write_reg(i2c_client,0xc512, 0xe7);
+    ovcamera_write_reg(i2c_client,0xc513, 0xe8);
 
     // Horizontal sub sample
-    ovcamera_write_reg(i2c_client,0xc518, 0x03);  // programatically
-    ovcamera_write_reg(i2c_client, 0xc519, 0x03);  // programatically
-    ovcamera_write_reg(i2c_client,0xc51a, 0x06);   // programatically
-    ovcamera_write_reg(i2c_client, 0xc51b, 0xfb);  // programatically
+    ovcamera_write_reg(i2c_client,0xc518, 0x03);
+    ovcamera_write_reg(i2c_client, 0xc519, 0x03);
+    ovcamera_write_reg(i2c_client,0xc51a, 0x06);
+    ovcamera_write_reg(i2c_client, 0xc51b, 0xfb);
 
-    ovcamera_write_reg(i2c_client,0X4300, 0x38);  // (OVCAM) Set the format to YUV (3) and YUYV (8
-
-    ovcamera_write_reg(i2c_client,0X5003, 0x14);  // (OVCAM)  ? Set for YUV44 to YUV422 drop AND no-VSYNC latch AND AEC/simple awb/tonemap/combine done
-
+    // SET_YUYV_FORMAT
+    ovcamera_write_reg(i2c_client,0X4300, 0x38);
+    // Set for YUV44 to YUV422 drop AND no-VSYNC latch AND AEC/simple awb/tonemap/combine done
+    ovcamera_write_reg(i2c_client,0X5003, 0x14);
+    // YUV_8BIT
     ovcamera_write_reg(i2c_client,0x4605, 0x08);
+    // Set Video Streaming setting
+    ovcamera_write_reg( i2c_client,0x0100, 0x01 );
 
-
-    ovcamera_write_reg( i2c_client,0x0100, 0x01 ); // ensure the video streaming bit is set
-
-    /* delay at least 1 ms */
+    // Re-enable chip
     msleep(1);
     ovcamera_write_reg(i2c_client,0x3042, 0xF9);
-    msleep(30);
+    msleep(30);  // this was a long delay in the sample (they did many writes to 3042 instead of sleeping)
     ovcamera_write_reg(i2c_client,0x301D, 0xB4);
     ovcamera_write_reg(i2c_client,0x301E, 0xF0);
     ovcamera_write_reg(i2c_client,0x3040, 0xF0);
@@ -1183,9 +1847,9 @@ ovcamera_probe(struct i2c_client *i2c_client, const struct i2c_device_id *id)
 	// sensor->pix.priv = 1; /* TV in flag */
 
 	// changed to 720p capture mode
-	sensor->streamcap.capturemode = 4;
+    sensor->streamcap.capturemode = ov5640_mode_720P_1280_720;  // mode 4 default
 	sensor->streamcap.capability = V4L2_MODE_HIGHQUALITY | V4L2_CAP_TIMEPERFRAME;
-	sensor->streamcap.timeperframe.denominator = 30;
+    sensor->streamcap.timeperframe.denominator = DEFAULT_FPS;
 	sensor->streamcap.timeperframe.numerator = 1;
 
     if (sysfs_create_group(&i2c_client->dev.kobj, &base_attribute_group)) {
