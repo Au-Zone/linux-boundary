@@ -397,10 +397,31 @@
 		mclk_source = <0>;
 	};
 
+    ov5640: ov5640@3c {
+        compatible = "ovti,ov5640";
+        reg = <0x3c>;
+        pinctrl-names = "default";
+        pinctrl-0 = <&pinctrl_ipu1_2>;
+        clocks = <&clks 200>;
+        clock-names = "csi_mclk";
+        DOVDD-supply = <&reg_1p8v>;
+        AVDD-supply = <&reg_2p5v>;
+        DVDD-supply = <&reg_1p8v>;
+        pwn-gpios = <&gpio1 6 1>;
+        rst-gpios = <&gpio1 8 0>;
+        ipu_id = <0>;
+        csi_id = <0>;
+        mclk = <24000000>;
+        mclk_source = <0>;
+    };
 
-	ov5640: ov5640@3c {
-		compatible = "ovti,ov5640";
-		reg = <0x3c>;
+
+
+    // TO TEST HACK uncomment this and comment out ov10633
+    ov10633: ov5640@30 {  // HACKED to talk to the 10633 for short term should be 3c
+        compatible = "ovti,ov10633";
+        // compatible = "ovti,ov10633";
+        reg = <0x30>;  // HACKED to talk to the 10633 for short term should be 3c
 		pinctrl-names = "default";
 		pinctrl-0 = <&pinctrl_ipu1_2>;
 		clocks = <&clks 200>;
@@ -415,6 +436,7 @@
 		mclk = <24000000>;
 		mclk_source = <0>;
 	};
+
 
 	tc358743_mipi: tc358743_mipi@0f {
 		compatible = "tc358743_mipi";
@@ -529,7 +551,7 @@
 				MX6QDL_PAD_EIM_DA13__GPIO3_IO13		0x0b0b0		/* Power */
 				MX6QDL_PAD_EIM_DA14__GPIO3_IO14		0x030b0		/* Reset */
 			>;
-		};
+        };
 	};
 };
 
