@@ -395,6 +395,24 @@
 		reg = <0x50>;
 	};
 
+    ov10633: ov10633@30 {
+        compatible = "ovti,ov10633";
+        reg = <0x30>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&pinctrl_ipu1_2>;
+		clocks = <&clks 200>;
+		clock-names = "csi_mclk";
+		DOVDD-supply = <&reg_1p8v>;
+		AVDD-supply = <&reg_2p5v>;
+		DVDD-supply = <&reg_1p8v>;
+        pwn-gpios = <&gpio1 6 1>;
+        rst-gpios = <&gpio1 8 0>;
+		ipu_id = <0>;
+		csi_id = <0>;
+		mclk = <24000000>;
+		mclk_source = <0>;
+    };
+
 	ov5642: ov5642@3d {
 		compatible = "ovti,ov5642";
 		reg = <0x3d>;
